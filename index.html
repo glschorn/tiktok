@@ -45,7 +45,15 @@
   .slide iframe {
     border: 0; width: 100%; height: 100%; display: block; background: #000;
   }
+  /* Transparent layer over the iframe: catches swipes that the player would otherwise swallow */
+  .slide .touch { position: absolute; inset: 0; z-index: 1; touch-action: none; }
+  .nav {
+    position: fixed; right: max(12px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%);
+    z-index: 5; display: flex; flex-direction: column; gap: 10px;
+  }
+  .nav .btn { opacity: .85; }
   .slide .meta {
+    z-index: 2;
     position: absolute; left: 0; right: 0; bottom: 0;
     padding: 10px max(16px, env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -122,6 +130,11 @@
 
 <div id="feed"></div>
 
+<div class="nav" id="nav" hidden>
+  <button class="btn icon" id="prev" aria-label="Попереднє">▲</button>
+  <button class="btn icon" id="next" aria-label="Наступне">▼</button>
+</div>
+
 <div class="backdrop" id="backdrop"></div>
 <div class="sheet" id="sheet">
   <h2>Додати відео</h2>
@@ -187,6 +200,7 @@
         <iframe title="TikTok ${v.id}" loading="lazy"
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
           allowfullscreen></iframe>
+        <div class="touch"></div>
         <div class="meta">
           <span>${v.user ? '@' + v.user : v.id}</span>
           <a class="btn" href="https://www.tiktok.com/@${v.user || 'tiktok'}/video/${v.id}" target="_blank" rel="noopener">Відкрити</a>
@@ -202,8 +216,36 @@
       });
     }, { root: feed, rootMargin: '100% 0px' });
     feed.querySelectorAll('.slide').forEach(s => io.observe(s));
+    document.getElementById('nav').hidden = videos.length < 2;
     updateCounter();
   }
+
+  function current() { return Math.round(feed.scrollTop / feed.clientHeight); }
+  function go(i) {
+    i = Math.max(0, Math.min(videos.length - 1, i));
+    feed.scrollTo({ top: i * feed.clientHeight, behavior: 'smooth' });
+  }
+  document.getElementById('prev').onclick = () => go(current() - 1);
+  document.getElementById('next').onclick = () => go(current() + 1);
+
+  // Swipe handling on the transparent overlay (works for touch and mouse via pointer events).
+  let startY = null, startT = 0;
+  feed.addEventListener('pointerdown', e => {
+    if (!e.target.classList.contains('touch')) return;
+    startY = e.clientY; startT = Date.now();
+    e.target.setPointerCapture(e.pointerId);
+  });
+  feed.addEventListener('pointerup', e => {
+    if (startY === null) return;
+    const dy = e.clientY - startY, dt = Date.now() - startT;
+    startY = null;
+    if (Math.abs(dy) > 40 || (Math.abs(dy) > 15 && dt < 250)) go(current() + (dy < 0 ? 1 : -1));
+  });
+  feed.addEventListener('pointercancel', () => { startY = null; });
+  window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') go(current() + 1);
+    if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') go(current() - 1);
+  });
 
   function updateCounter() {
     if (!videos.length) return;
