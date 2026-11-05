@@ -207,18 +207,35 @@
         </div>`;
       feed.appendChild(el);
     });
-    // Load iframes only when near the viewport, to save memory on the phone.
-    const io = new IntersectionObserver(entries => {
-      entries.forEach(e => {
-        const f = e.target.querySelector('iframe');
-        const id = videos[+e.target.dataset.index]?.id;
-        if (e.isIntersecting && f && !f.src) f.src = `https://www.tiktok.com/embed/v2/${id}?lang=uk`;
-      });
-    }, { root: feed, rootMargin: '100% 0px' });
-    feed.querySelectorAll('.slide').forEach(s => io.observe(s));
     document.getElementById('nav').hidden = videos.length < 2;
     updateCounter();
+    syncPlayers();
   }
+
+  // TikTok throttles the embed server ("overload-protect") when several players load at once,
+  // so keep exactly one player loaded, and preload the next one only after a pause.
+  let preloadTimer = null;
+  function syncPlayers() {
+    clearTimeout(preloadTimer);
+    const slides = feed.querySelectorAll('.slide');
+    if (!slides.length) return;
+    const cur = current();
+    slides.forEach((s, i) => {
+      const f = s.querySelector('iframe');
+      if (i !== cur && i !== cur + 1 && f.dataset.loaded) { f.src = 'about:blank'; delete f.dataset.loaded; }
+    });
+    const load = i => {
+      const f = slides[i]?.querySelector('iframe');
+      if (f && !f.dataset.loaded) { f.dataset.loaded = '1'; f.src = `https://www.tiktok.com/embed/v2/${videos[i].id}?lang=uk`; }
+    };
+    load(cur);
+    preloadTimer = setTimeout(() => load(cur + 1), 2500);
+  }
+  let scrollTimer = null;
+  feed.addEventListener('scroll', () => {
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(syncPlayers, 300);
+  }, { passive: true });
 
   function current() { return Math.round(feed.scrollTop / feed.clientHeight); }
   function go(i) {
