@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TikTok Viewer">
+<meta name="theme-color" content="#0b0b0f">
+<title>TikTok Viewer</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230b0b0f'/><path d='M100 40v70a18 18 0 1 1-18-18' fill='none' stroke='%2325f4ee' stroke-width='14' stroke-linecap='round'/><path d='M106 46v70a18 18 0 1 1-18-18' fill='none' stroke='%23fe2c55' stroke-width='14' stroke-linecap='round'/></svg>">
+<style>
+  /* Layout: full-screen vertical feed with scroll-snap; add bar slides up from the bottom */
+  :root {
+    --bg: #0b0b0f;
+    --fg: #f4f4f6;
+    --muted: #8a8a96;
+    --panel: #16161d;
+    --line: #2a2a34;
+    --accent: #fe2c55;
+    --accent-2: #25f4ee;
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); overscroll-behavior: none; }
+
+  #feed {
+    height: 100%;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #feed::-webkit-scrollbar { display: none; }
+
+  .slide {
+    height: 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    background: #000;
+  }
+  .slide iframe {
+    border: 0; width: 100%; height: 100%; display: block; background: #000;
+  }
+  .slide .meta {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    padding: 10px max(16px, env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: linear-gradient(transparent, rgba(0,0,0,.6));
+    pointer-events: none;
+  }
+  .meta span { font-size: 13px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta button { pointer-events: auto; }
+
+  .empty {
+    height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 0 32px; text-align: center; color: var(--muted); font-size: 15px; line-height: 1.5;
+  }
+  .empty .logo { width: 72px; height: 72px; }
+  .empty b { color: var(--fg); font-size: 20px; }
+
+  /* Top bar */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    padding: calc(8px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+    display: flex; justify-content: space-between; align-items: center;
+    pointer-events: none;
+  }
+  .topbar > * { pointer-events: auto; }
+  .counter { font-size: 13px; font-variant-numeric: tabular-nums; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+
+  .btn {
+    appearance: none; border: 0; border-radius: 999px;
+    background: rgba(22,22,29,.75); color: #fff;
+    font: 600 14px/1 var(--font); padding: 10px 14px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    cursor: pointer;
+  }
+  .btn.primary { background: var(--accent); }
+  .btn.icon { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; font-size: 20px; }
+  .btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+  /* Add sheet */
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    background: var(--panel); border-top: 1px solid var(--line);
+    border-radius: 18px 18px 0 0;
+    padding: 14px max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    transform: translateY(110%); transition: transform .25s ease;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .sheet.open { transform: translateY(0); }
+  .sheet h2 { margin: 0; font-size: 16px; }
+  .sheet p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+  .row { display: flex; gap: 8px; }
+  .row input {
+    flex: 1; min-width: 0; font: 16px var(--font); padding: 11px 12px;
+    border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  .row input:focus { outline: 2px solid var(--accent-2); border-color: transparent; }
+  .err { color: var(--accent); font-size: 13px; min-height: 1em; }
+  .list { max-height: 34vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--bg); font-size: 13px; }
+  .item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .item button { background: none; border: 0; color: var(--accent); font-size: 18px; cursor: pointer; padding: 4px; }
+
+  .backdrop { position: fixed; inset: 0; z-index: 9; background: rgba(0,0,0,.5); display: none; }
+  .backdrop.open { display: block; }
+
+  @media (prefers-reduced-motion: reduce) { .sheet { transition: none; } }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="counter" id="counter"></span>
+  <button class="btn icon" id="openSheet" aria-label="Додати відео">＋</button>
+</div>
+
+<div id="feed"></div>
+
+<div class="backdrop" id="backdrop"></div>
+<div class="sheet" id="sheet">
+  <h2>Додати відео</h2>
+  <p>Вставте посилання виду tiktok.com/@user/video/… Відео зберігаються на цьому пристрої.</p>
+  <div class="row">
+    <input id="url" type="url" inputmode="url" placeholder="https://www.tiktok.com/@…/video/…" autocomplete="off">
+    <button class="btn primary" id="add">Додати</button>
+  </div>
+  <div class="err" id="err"></div>
+  <div class="list" id="list"></div>
+  <button class="btn" id="closeSheet">Закрити</button>
+</div>
+
+<script>
+(function () {
+  const KEY = 'tiktok-viewer.videos';
+  const feed = document.getElementById('feed');
+  const sheet = document.getElementById('sheet');
+  const backdrop = document.getElementById('backdrop');
+  const urlInput = document.getElementById('url');
+  const err = document.getElementById('err');
+  const list = document.getElementById('list');
+  const counter = document.getElementById('counter');
+
+  let videos = load();
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(videos)); } catch {}
+  }
+
+  // Accepts full tiktok.com/@user/video/ID links or a bare numeric ID.
+  function parse(raw) {
+    const s = raw.trim();
+    if (/^\d{15,22}$/.test(s)) return { id: s, user: '' };
+    const m = s.match(/tiktok\.com\/(?:@([\w.\-]+)\/)?(?:video|photo|v)\/(\d{15,22})/i);
+    if (m) return { id: m[2], user: m[1] || '' };
+    if (/vm\.tiktok\.com|vt\.tiktok\.com|\/t\//i.test(s)) {
+      throw new Error('Короткі посилання (vm.tiktok.com) не підтримуються — відкрийте його в браузері та скопіюйте повну адресу.');
+    }
+    throw new Error('Не схоже на посилання TikTok.');
+  }
+
+  function render() {
+    feed.innerHTML = '';
+    if (!videos.length) {
+      feed.innerHTML = `
+        <div class="empty">
+          <svg class="logo" viewBox="0 0 180 180"><rect width="180" height="180" rx="40" fill="#16161d"/><path d="M100 40v70a18 18 0 1 1-18-18" fill="none" stroke="#25f4ee" stroke-width="14" stroke-linecap="round"/><path d="M106 46v70a18 18 0 1 1-18-18" fill="none" stroke="#fe2c55" stroke-width="14" stroke-linecap="round"/></svg>
+          <b>Поки порожньо</b>
+          <div>Натисніть ＋ і вставте посилання на відео TikTok.<br>Гортайте вгору-вниз, як у застосунку.</div>
+        </div>`;
+      counter.textContent = '';
+      return;
+    }
+    videos.forEach((v, i) => {
+      const el = document.createElement('section');
+      el.className = 'slide';
+      el.dataset.index = i;
+      el.innerHTML = `
+        <iframe title="TikTok ${v.id}" loading="lazy"
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+          allowfullscreen></iframe>
+        <div class="meta">
+          <span>${v.user ? '@' + v.user : v.id}</span>
+          <a class="btn" href="https://www.tiktok.com/@${v.user || 'tiktok'}/video/${v.id}" target="_blank" rel="noopener">Відкрити</a>
+        </div>`;
+      feed.appendChild(el);
+    });
+    // Load iframes only when near the viewport, to save memory on the phone.
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        const f = e.target.querySelector('iframe');
+        const id = videos[+e.target.dataset.index]?.id;
+        if (e.isIntersecting && f && !f.src) f.src = `https://www.tiktok.com/embed/v2/${id}?lang=uk`;
+      });
+    }, { root: feed, rootMargin: '100% 0px' });
+    feed.querySelectorAll('.slide').forEach(s => io.observe(s));
+    updateCounter();
+  }
+
+  function updateCounter() {
+    if (!videos.length) return;
+    const i = Math.round(feed.scrollTop / feed.clientHeight) + 1;
+    counter.textContent = `${Math.min(i, videos.length)} / ${videos.length}`;
+  }
+  feed.addEventListener('scroll', updateCounter, { passive: true });
+
+  function renderList() {
+    list.innerHTML = '';
+    videos.forEach((v, i) => {
+      const row = document.createElement('div');
+      row.className = 'item';
+      row.innerHTML = `<span>${i + 1}. ${v.user ? '@' + v.user + ' · ' : ''}${v.id}</span><button aria-label="Видалити">✕</button>`;
+      row.querySelector('button').onclick = () => { videos.splice(i, 1); save(); render(); renderList(); };
+      list.appendChild(row);
+    });
+  }
+
+  function openSheet() { renderList(); sheet.classList.add('open'); backdrop.classList.add('open'); setTimeout(() => urlInput.focus(), 250); }
+  function closeSheet() { sheet.classList.remove('open'); backdrop.classList.remove('open'); err.textContent = ''; }
+
+  function add() {
+    try {
+      const v = parse(urlInput.value);
+      if (videos.some(x => x.id === v.id)) throw new Error('Це відео вже у списку.');
+      videos.unshift(v); save();
+      urlInput.value = ''; err.textContent = '';
+      render(); renderList();
+      feed.scrollTo({ top: 0 });
+    } catch (e) { err.textContent = e.message; }
+  }
+
+  document.getElementById('openSheet').onclick = openSheet;
+  document.getElementById('closeSheet').onclick = closeSheet;
+  backdrop.onclick = closeSheet;
+  document.getElementById('add').onclick = add;
+  urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+
+  // Support ?add=<url> for iOS Shortcuts / share sheet.
+  const q = new URLSearchParams(location.search).get('add');
+  if (q) { urlInput.value = q; add(); history.replaceState(null, '', location.pathname); }
+
+  render();
+})();
+</script>
+</body>
+</html>
